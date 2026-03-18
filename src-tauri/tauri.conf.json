@@ -26,15 +26,9 @@
         "sidecar": false,
         "open": true,
         "scope": [
-          { "name": "rec", "cmd": "rec", "args": true },
-          { "name": "pkill", "cmd": "pkill", "args": true },
-          { "name": "sox", "cmd": "sox", "args": true },
-          {
-            "name": "SwitchAudioSource",
-            "cmd": "SwitchAudioSource",
-            "args": true
-          },
-          { "name": "osascript", "cmd": "osascript", "args": true }
+          { "name": "sh", "cmd": "/bin/sh", "args": true },
+          { "name": "pkill", "cmd": "/usr/bin/pkill", "args": true },
+          { "name": "osascript", "cmd": "/usr/bin/osascript", "args": true }
         ]
       },
       "dialog": {
@@ -87,7 +81,7 @@
         "exceptionDomain": "",
         "frameworks": [],
         "providerShortName": null,
-        "signingIdentity": null,
+        "signingIdentity": "-",
         "minimumSystemVersion": "10.15"
       }
     },

@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(xargs ls:*)"
+      "Bash(xargs ls:*)",
+      "Bash(find /Users/llukas/Documents/source/call-recorder/src-tauri/target -name *.app -maxdepth 5)",
+      "Bash(find /Users/llukas/Documents/source/call-recorder -name *.app -maxdepth 8)"
     ]
   }
 }

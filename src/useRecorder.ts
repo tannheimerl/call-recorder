@@ -4,6 +4,29 @@ import { open } from "@tauri-apps/api/dialog";
 import { Command, Child } from "@tauri-apps/api/shell";
 import { listen } from "@tauri-apps/api/event";
 
+// Bundled .app launches with a stripped PATH (/usr/bin:/bin:/usr/sbin:/sbin).
+// Homebrew tools (rec, sox, SwitchAudioSource) live outside that PATH, so we
+// run them via /bin/sh with both Homebrew prefixes prepended. Each binary arg
+// is passed as a positional parameter ($1, $2, …) so filepaths with spaces
+// are handled safely without any shell-quoting juggling.
+const BREW_PATH = "/opt/homebrew/bin:/usr/local/bin";
+
+function brewSpawn(bin: string, args: string[]): Promise<Child> {
+  const refs = args.map((_, i) => `"$${i + 1}"`).join(" ");
+  return new Command("sh", [
+    "-c", `export PATH="${BREW_PATH}:$PATH"; exec ${bin} ${refs}`,
+    "--", ...args,
+  ]).spawn();
+}
+
+function brewExec(bin: string, args: string[]): Promise<unknown> {
+  const refs = args.map((_, i) => `"$${i + 1}"`).join(" ");
+  return new Command("sh", [
+    "-c", `export PATH="${BREW_PATH}:$PATH"; ${bin} ${refs}`,
+    "--", ...args,
+  ]).execute();
+}
+
 export type MeetingType =
   | "Vorlesung"
   | "Business Meeting"
@@ -97,36 +120,19 @@ export function useRecorder() {
 
     // Nur bei System Audio oder Beides umschalten
     if (config.audioSource === "system" || config.audioSource === "beides") {
-      await new Command("SwitchAudioSource", [
-        "-s",
-        "Multiausgangsgerät",
-        "-t",
-        "output",
-      ]).execute();
+      await brewExec("SwitchAudioSource", ["-s", "Multiausgangsgerät", "-t", "output"]);
       await new Promise((r) => setTimeout(r, 2000));
     }
 
-    // Kommando und Args je nach Audio-Quelle
-    let commandName = "rec";
-    let recArgs: string[] = [];
-
-    if (config.audioSource === "mikrofon") {
-      // rec vom Standard-Mikrofon
-      commandName = "rec";
-      recArgs = ["-r", "48000", "-c", "1", filepath];
-    } else if (config.audioSource === "system") {
-      // sox von BlackHole
-      commandName = "sox";
-      recArgs = ["-t", "coreaudio", "BlackHole 2ch", filepath];
-    } else {
-      // Beides: Mikrofon aufnehmen
-      commandName = "rec";
-      recArgs = ["-r", "48000", "-c", "1", filepath];
-    }
-
     try {
-      const cmd = new Command(commandName, recArgs);
-      const child = await cmd.spawn();
+      let child: Child;
+      if (config.audioSource === "mikrofon" || config.audioSource === "beides") {
+        // rec vom Standard-Mikrofon
+        child = await brewSpawn("rec", ["-r", "48000", "-c", "1", filepath]);
+      } else {
+        // sox von BlackHole
+        child = await brewSpawn("sox", ["-t", "coreaudio", "BlackHole 2ch", filepath]);
+      }
       recProcess.current = child;
       currentConfig.current = config;
       startTimeRef.current = Date.now();
@@ -150,12 +156,7 @@ export function useRecorder() {
     // Nur zurückschalten wenn System Audio verwendet wurde
     const cfg = currentConfig.current;
     if (cfg?.audioSource === "system" || cfg?.audioSource === "beides") {
-      await new Command("SwitchAudioSource", [
-        "-s",
-        "MacBook Pro-Lautsprecher",
-        "-t",
-        "output",
-      ]).execute();
+      await brewExec("SwitchAudioSource", ["-s", "MacBook Pro-Lautsprecher", "-t", "output"]);
     }
 
     // Prozess sauber beenden
