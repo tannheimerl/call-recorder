@@ -506,6 +506,38 @@
   font-variant-numeric: tabular-nums;
 }
 
+.volume-slider--muted {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.mute-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.mute-btn:hover {
+  border-color: var(--accent);
+}
+
+.mute-btn--active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+
 .filepath {
   display: flex;
   flex-direction: column;

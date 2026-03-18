@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Command } from "@tauri-apps/api/shell";
 import { useRecorder, AudioSource, RecordingConfig } from "./useRecorder";
 import "./App.css";
@@ -38,22 +38,22 @@ const IconMonitor = () => (
   </svg>
 );
 
-const IconBoth = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M9 18V5l12-2v13" />
-    <circle cx="6" cy="18" r="3" />
-    <circle cx="18" cy="16" r="3" />
-  </svg>
-);
+// const IconBoth = () => (
+//   <svg
+//     width="18"
+//     height="18"
+//     viewBox="0 0 24 24"
+//     fill="none"
+//     stroke="currentColor"
+//     strokeWidth="2"
+//     strokeLinecap="round"
+//     strokeLinejoin="round"
+//   >
+//     <path d="M9 18V5l12-2v13" />
+//     <circle cx="6" cy="18" r="3" />
+//     <circle cx="18" cy="16" r="3" />
+//   </svg>
+// );
 
 const IconFolder = () => (
   <svg
@@ -232,12 +232,12 @@ function SetupView({
       sub: "Alle Teilnehmer via BlackHole",
       icon: <IconMonitor />,
     },
-    {
-      value: "beides",
-      label: "Beides",
-      sub: "Mic + System Audio gemischt",
-      icon: <IconBoth />,
-    },
+    // {
+    //   value: "beides",
+    //   label: "Beides",
+    //   sub: "Mic + System Audio gemischt",
+    //   icon: <IconBoth />,
+    // },
   ];
 
   return (
@@ -245,7 +245,7 @@ function SetupView({
       <header className="app-header">
         <div className="logo">
           <IconLogo />
-          <span className="logo-text">Recorder</span>
+          <span className="logo-text">Call Recorder by Lukas</span>
         </div>
       </header>
 
@@ -307,28 +307,57 @@ function SetupView({
 
 // ─── Volume Slider ────────────────────────────────────────────────────────────
 function VolumeSlider() {
-  const [volume, setVolume] = useState(50);
+  const [volume, setVolume] = useState(20);
+  const [isMuted, setIsMuted] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleChange = async (value: number) => {
-    setVolume(value);
+  const setSystemVolume = async (value: number, muted: boolean) => {
     try {
-      await new Command("osascript", ["-e", `set volume output volume ${value}`]).execute();
-    } catch {
-      // silently ignore if osascript fails
-    }
+      await new Command("osascript", [
+        "-e",
+        `set volume output volume ${value}`,
+      ]).execute();
+      await new Command("osascript", [
+        "-e",
+        `set volume output muted ${muted ? "true" : "false"}`,
+      ]).execute();
+    } catch {}
+  };
+
+  const handleChange = (value: number) => {
+    setVolume(value);
+    const muted = value === 0;
+    setIsMuted(muted);
+
+    // Debounce: warte 150ms bis User aufgehört hat zu scrollen
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setSystemVolume(value, muted);
+    }, 150);
+  };
+
+  const toggleMute = async () => {
+    const next = !isMuted;
+    setIsMuted(next);
+    setVolume(next ? 0 : 20);
+    await setSystemVolume(next ? 0 : volume, next);
   };
 
   return (
     <div className="volume-slider-row">
-      <svg className="volume-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-      </svg>
+      <button
+        className={`mute-btn${isMuted ? " mute-btn--active" : ""}`}
+        onClick={toggleMute}
+        title={isMuted ? "Unmute" : "Mute"}
+      >
+        {isMuted ? "🔇" : "🔊"}
+      </button>
       <input
         type="range"
         min={0}
         max={100}
         value={volume}
-        className="volume-slider"
+        className={`volume-slider${isMuted ? " volume-slider--muted" : ""}`}
         onChange={(e) => handleChange(Number(e.target.value))}
       />
       <span className="volume-value">{volume}%</span>

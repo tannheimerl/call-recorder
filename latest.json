@@ -1,0 +1,11 @@
+{
+  "version": "0.1.2",
+  "notes": "Test Auto-Update",
+  "pub_date": "2026-03-18T00:00:00Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://github.com/tannheimerl/call-recorder/releases/download/v.0.1.2/Call.Recorder.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWUFwVkl6c25ERWcwS3l2c09UbmgxVWFMZk9LTE5JNGdlNHhXeWhtSDZscWNHcSsrY3UrallFQzhXNXk5RGxCRmFNQ1VnT3E1ODNZZW5oNk8xSGJlMWViM3NvMTlOamdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzczODY5NDgxCWZpbGU6Q2FsbCBSZWNvcmRlci5hcHAudGFyLmd6CkxlM1l4YnBnNmFveVhPdndXY3lDY3dKNWpPVlIrdEZVQ2xuYUszeVBDbGhZUnlJeE9QNEppUkVzcjlwM0pQTWZPZmhzN1VuVFMzc1FmS1dJVU5OT0FRPT0K"
+    }
+  }
+}

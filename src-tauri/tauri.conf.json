@@ -7,9 +7,17 @@
   },
   "package": {
     "productName": "Call Recorder",
-    "version": "0.1.0"
+    "version": "0.1.2"
   },
   "tauri": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/tannheimerl/call-recorder/releases/latest/download/latest.json"
+      ],
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyQzNDOUNFNDg5NTAyNTgKUldSWUFwVkl6c25ERXBsWjZ2TVdjNmVpR0FUYUpGNnB4S3FPNUZwZlh1OEhDdndWWXlUMHZ2MmcK"
+    },
     "allowlist": {
       "all": false,
       "shell": {
@@ -75,11 +83,12 @@
         "icons/icon.ico"
       ],
       "macOS": {
-        "entitlements": null,
+        "entitlements": "entitlements.plist",
         "exceptionDomain": "",
         "frameworks": [],
         "providerShortName": null,
-        "signingIdentity": null
+        "signingIdentity": null,
+        "minimumSystemVersion": "10.15"
       }
     },
     "security": {

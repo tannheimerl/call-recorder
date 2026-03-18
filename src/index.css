@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Open+Sans:wght@400;600;700;800&display=swap');
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -19,7 +19,7 @@
   --text-muted:#888888;
   --radius:    10px;
   --mono:      'DM Mono', monospace;
-  --sans:      'Syne', sans-serif;
+  --sans:      'Open Sans', sans-serif;
 }
 
 html, body, #root {
