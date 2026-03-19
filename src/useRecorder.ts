@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { open } from "@tauri-apps/api/dialog";
+import { message } from "@tauri-apps/api/dialog";
 import { Command, Child } from "@tauri-apps/api/shell";
 import { listen } from "@tauri-apps/api/event";
+import { readBinaryFile, removeFile } from "@tauri-apps/api/fs";
+import { tempdir } from "@tauri-apps/api/os";
+import { fetch as tauriFetch, Body } from "@tauri-apps/api/http";
 
 // Bundled .app launches with a stripped PATH (/usr/bin:/bin:/usr/sbin:/sbin).
 // Homebrew tools (rec, sox, SwitchAudioSource) live outside that PATH, so we
@@ -33,20 +37,25 @@ export type MeetingType =
   | "Sonstiges"
   | "Aufzeichung";
 export type AudioSource = "mikrofon" | "system" | "beides";
+export type UploadMode = "local" | "cloud";
 
 export interface RecordingConfig {
   meetingType: MeetingType;
   audioSource: AudioSource;
   saveFolder: string;
   attachments: string[];
+  uploadMode: UploadMode;
+  webhookUrl?: string;
+  email?: string;
 }
 
 export interface RecorderState {
-  status: "idle" | "recording" | "stopping";
+  status: "idle" | "recording" | "stopping" | "uploading";
   duration: number;
   fileSize: number;
   filePath: string | null;
   config: RecordingConfig | null;
+  uploadMessage: string;
 }
 
 export function useRecorder() {
@@ -56,12 +65,14 @@ export function useRecorder() {
     fileSize: 0,
     filePath: null,
     config: null,
+    uploadMessage: "",
   });
 
   const recProcess = useRef<Child | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
   const currentConfig = useRef<RecordingConfig | null>(null);
+  const currentFilePath = useRef<string | null>(null);
 
   // Listen for tray stop event
   useEffect(() => {
@@ -116,7 +127,14 @@ export function useRecorder() {
     const ts = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const safeName = config.meetingType.replace(/ /g, "_");
     const filename = `${safeName}_${ts}.mp3`;
-    const filepath = `${config.saveFolder}/${filename}`;
+
+    let filepath: string;
+    if (config.uploadMode === "cloud") {
+      const tmp = await tempdir();
+      filepath = `${tmp}/${filename}`;
+    } else {
+      filepath = `${config.saveFolder}/${filename}`;
+    }
 
     // Nur bei System Audio oder Beides umschalten
     if (config.audioSource === "system" || config.audioSource === "beides") {
@@ -135,6 +153,7 @@ export function useRecorder() {
       }
       recProcess.current = child;
       currentConfig.current = config;
+      currentFilePath.current = filepath;
       startTimeRef.current = Date.now();
 
       setState({
@@ -143,6 +162,7 @@ export function useRecorder() {
         fileSize: 0,
         filePath: filepath,
         config,
+        uploadMessage: "",
       });
     } catch (err) {
       console.error("rec start error:", err);
@@ -153,8 +173,10 @@ export function useRecorder() {
   const stopRecording = useCallback(async () => {
     setState((prev) => ({ ...prev, status: "stopping" }));
 
-    // Nur zurückschalten wenn System Audio verwendet wurde
     const cfg = currentConfig.current;
+    const filePath = currentFilePath.current;
+
+    // Nur zurückschalten wenn System Audio verwendet wurde
     if (cfg?.audioSource === "system" || cfg?.audioSource === "beides") {
       await brewExec("SwitchAudioSource", ["-s", "MacBook Pro-Lautsprecher", "-t", "output"]);
     }
@@ -170,9 +192,54 @@ export function useRecorder() {
     await new Promise((r) => setTimeout(r, 1500));
 
     currentConfig.current = null;
+    currentFilePath.current = null;
+
+    if (cfg?.uploadMode === "cloud" && filePath && cfg.webhookUrl && cfg.email) {
+      setState((prev) => ({
+        ...prev,
+        status: "uploading",
+        uploadMessage: "Datei wird hochgeladen…",
+      }));
+
+      try {
+        const data = await readBinaryFile(filePath);
+        const filename = filePath.split("/").pop() ?? "recording.mp3";
+
+        const body = Body.form({
+          audio: {
+            file: data,
+            mime: "audio/mpeg",
+            fileName: filename,
+          },
+          email: cfg.email,
+          meetingType: cfg.meetingType,
+        });
+
+        const response = await tauriFetch(cfg.webhookUrl, {
+          method: "POST",
+          body,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server antwortete mit Status ${response.status}`);
+        }
+
+        await removeFile(filePath);
+        await message("Zusammenfassung wird per Mail zugeschickt ✓", {
+          title: "Upload erfolgreich",
+        });
+      } catch (err) {
+        await message(`Upload fehlgeschlagen: ${err}`, {
+          title: "Fehler",
+          type: "error",
+        });
+      }
+    }
+
     setState((prev) => ({
       ...prev,
       status: "idle",
+      uploadMessage: "",
     }));
   }, []);
 

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Command } from "@tauri-apps/api/shell";
-import { useRecorder, AudioSource, RecordingConfig } from "./useRecorder";
+import { useRecorder, AudioSource, RecordingConfig, UploadMode } from "./useRecorder";
 import "./App.css";
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
@@ -193,6 +193,15 @@ function SetupView({
   const [audioSource, setAudioSource] = useState<AudioSource>("system");
   const [saveFolder, setSaveFolder] = useState<string>("");
   const [starting, setStarting] = useState(false);
+  const [uploadMode, setUploadMode] = useState<UploadMode>(
+    () => (localStorage.getItem("uploadMode") as UploadMode) || "local"
+  );
+  const [webhookUrl, setWebhookUrl] = useState(
+    () => localStorage.getItem("webhookUrl") || ""
+  );
+  const [email, setEmail] = useState(
+    () => localStorage.getItem("email") || ""
+  );
 
   const handleChooseFolder = async () => {
     const { open: openDialog } = await import("@tauri-apps/api/dialog");
@@ -203,14 +212,36 @@ function SetupView({
     if (selected) setSaveFolder(selected as string);
   };
 
+  const handleModeChange = (mode: UploadMode) => {
+    setUploadMode(mode);
+    localStorage.setItem("uploadMode", mode);
+  };
+
+  const handleWebhookChange = (v: string) => {
+    setWebhookUrl(v);
+    localStorage.setItem("webhookUrl", v);
+  };
+
+  const handleEmailChange = (v: string) => {
+    setEmail(v);
+    localStorage.setItem("email", v);
+  };
+
+  const canStart =
+    !starting &&
+    (uploadMode === "local" ? !!saveFolder : !!webhookUrl && !!email);
+
   const handleStart = () => {
-    if (!saveFolder || starting) return;
+    if (!canStart) return;
     setStarting(true);
     onStart({
       meetingType: "Aufzeichung",
       audioSource,
       saveFolder,
       attachments: [],
+      uploadMode,
+      webhookUrl: uploadMode === "cloud" ? webhookUrl : undefined,
+      email: uploadMode === "cloud" ? email : undefined,
     });
   };
 
@@ -245,7 +276,7 @@ function SetupView({
       <header className="app-header">
         <div className="logo">
           <IconLogo />
-          <span className="logo-text">Call Recorder by Lukas</span>
+          <span className="logo-text">Noto</span>
         </div>
       </header>
 
@@ -270,25 +301,67 @@ function SetupView({
           </div>
         </section>
 
-        {/* Save Location */}
+        {/* Upload Mode Toggle */}
         <section className="section">
-          <label className="section-label">Speicherort</label>
-          <button className="folder-btn" onClick={handleChooseFolder}>
-            <IconFolder />
-            <span className="folder-path">
-              {saveFolder
-                ? saveFolder.split("/").slice(-2).join("/")
-                : "Ordner wählen…"}
-            </span>
-          </button>
+          <label className="section-label">Speichermodus</label>
+          <div className="mode-toggle">
+            <button
+              className={`mode-btn ${uploadMode === "local" ? "active" : ""}`}
+              onClick={() => handleModeChange("local")}
+            >
+              Lokal
+            </button>
+            <button
+              className={`mode-btn ${uploadMode === "cloud" ? "active" : ""}`}
+              onClick={() => handleModeChange("cloud")}
+            >
+              Cloud
+            </button>
+          </div>
         </section>
+
+        {/* Local: Save Folder */}
+        {uploadMode === "local" && (
+          <section className="section">
+            <label className="section-label">Speicherort</label>
+            <button className="folder-btn" onClick={handleChooseFolder}>
+              <IconFolder />
+              <span className="folder-path">
+                {saveFolder
+                  ? saveFolder.split("/").slice(-2).join("/")
+                  : "Ordner wählen…"}
+              </span>
+            </button>
+          </section>
+        )}
+
+        {/* Cloud: Settings */}
+        {uploadMode === "cloud" && (
+          <section className="section">
+            <label className="section-label">Cloud-Einstellungen</label>
+            <input
+              className="text-input"
+              type="url"
+              placeholder="Webhook URL (z.B. https://server/webhook/audio)"
+              value={webhookUrl}
+              onChange={(e) => handleWebhookChange(e.target.value)}
+            />
+            <input
+              className="text-input"
+              type="email"
+              placeholder="E-Mail für Zusammenfassung"
+              value={email}
+              onChange={(e) => handleEmailChange(e.target.value)}
+            />
+          </section>
+        )}
       </div>
 
       <footer className="app-footer">
         <button
-          className={`start-btn ${!saveFolder || starting ? "disabled" : ""}`}
+          className={`start-btn ${!canStart ? "disabled" : ""}`}
           onClick={handleStart}
-          disabled={!saveFolder || starting}
+          disabled={!canStart}
         >
           {starting ? (
             <>
@@ -457,13 +530,19 @@ function RecordingView({
 }
 
 // ─── Stopping View ───────────────────────────────────────────────────────────
-function StoppingView() {
+function StoppingView({ uploadMessage }: { uploadMessage?: string }) {
   return (
     <div className="view stopping-view">
       <div className="stopping-content">
         <div className="spinner" />
-        <p>Aufnahme wird gespeichert…</p>
-        <p className="hint">Syncthing überträgt die Datei automatisch.</p>
+        {uploadMessage ? (
+          <p>{uploadMessage}</p>
+        ) : (
+          <>
+            <p>Aufnahme wird gespeichert…</p>
+            <p className="hint">Syncthing überträgt die Datei automatisch.</p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -480,6 +559,7 @@ export default function App() {
   } = useRecorder();
 
   if (state.status === "stopping") return <StoppingView />;
+  if (state.status === "uploading") return <StoppingView uploadMessage={state.uploadMessage} />;
 
   if (state.status === "recording") {
     return (

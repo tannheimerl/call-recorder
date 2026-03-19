@@ -45,8 +45,14 @@
         "writeFile": true,
         "readDir": true,
         "createDir": true,
+        "removeFile": true,
         "exists": true,
-        "scope": ["$HOME/**"]
+        "scope": ["$HOME/**", "$TEMP/**"]
+      },
+      "http": {
+        "all": false,
+        "request": true,
+        "scope": ["https://**", "http://**"]
       },
       "notification": {
         "all": true
@@ -97,7 +103,7 @@
       {
         "fullscreen": false,
         "resizable": false,
-        "title": "Call Recorder",
+        "title": "Noto",
         "width": 420,
         "height": 620,
         "decorations": true,
