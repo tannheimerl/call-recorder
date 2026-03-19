@@ -202,6 +202,9 @@ function SetupView({
   const [email, setEmail] = useState(
     () => localStorage.getItem("email") || ""
   );
+  const [apiKey, setApiKey] = useState(
+    () => localStorage.getItem("apiKey") || ""
+  );
 
   const handleChooseFolder = async () => {
     const { open: openDialog } = await import("@tauri-apps/api/dialog");
@@ -227,9 +230,16 @@ function SetupView({
     localStorage.setItem("email", v);
   };
 
+  const handleApiKeyChange = (v: string) => {
+    setApiKey(v);
+    localStorage.setItem("apiKey", v);
+  };
+
   const canStart =
     !starting &&
-    (uploadMode === "local" ? !!saveFolder : !!webhookUrl && !!email);
+    (uploadMode === "local"
+      ? !!saveFolder
+      : !!webhookUrl && !!email && !!apiKey);
 
   const handleStart = () => {
     if (!canStart) return;
@@ -242,6 +252,7 @@ function SetupView({
       uploadMode,
       webhookUrl: uploadMode === "cloud" ? webhookUrl : undefined,
       email: uploadMode === "cloud" ? email : undefined,
+      apiKey: uploadMode === "cloud" ? apiKey : undefined,
     });
   };
 
@@ -352,6 +363,13 @@ function SetupView({
               placeholder="E-Mail für Zusammenfassung"
               value={email}
               onChange={(e) => handleEmailChange(e.target.value)}
+            />
+            <input
+              className="text-input"
+              type="password"
+              placeholder="API Key"
+              value={apiKey}
+              onChange={(e) => handleApiKeyChange(e.target.value)}
             />
           </section>
         )}

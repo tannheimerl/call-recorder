@@ -47,6 +47,7 @@ export interface RecordingConfig {
   uploadMode: UploadMode;
   webhookUrl?: string;
   email?: string;
+  apiKey?: string;
 }
 
 export interface RecorderState {
@@ -217,6 +218,7 @@ export function useRecorder() {
 
         const response = await tauriFetch(cfg.webhookUrl, {
           method: "POST",
+          headers: { "X-API-Key": cfg.apiKey ?? "" },
           body,
         });
 
