@@ -267,6 +267,11 @@
   transition: all 0.15s ease;
 }
 
+.mode-btn:hover {
+  background: var(--surface2);
+  color: var(--accent);
+}
+
 .mode-btn.active {
   background: var(--accent);
   color: #fff;

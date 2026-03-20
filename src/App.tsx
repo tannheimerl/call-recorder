@@ -1,6 +1,11 @@
 import { useRef, useState } from "react";
 import { Command } from "@tauri-apps/api/shell";
-import { useRecorder, AudioSource, RecordingConfig, UploadMode } from "./useRecorder";
+import {
+  useRecorder,
+  AudioSource,
+  RecordingConfig,
+  UploadMode,
+} from "./useRecorder";
 import "./App.css";
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
@@ -194,16 +199,14 @@ function SetupView({
   const [saveFolder, setSaveFolder] = useState<string>("");
   const [starting, setStarting] = useState(false);
   const [uploadMode, setUploadMode] = useState<UploadMode>(
-    () => (localStorage.getItem("uploadMode") as UploadMode) || "local"
+    () => (localStorage.getItem("uploadMode") as UploadMode) || "local",
   );
   const [webhookUrl, setWebhookUrl] = useState(
-    () => localStorage.getItem("webhookUrl") || ""
+    () => localStorage.getItem("webhookUrl") || "",
   );
-  const [email, setEmail] = useState(
-    () => localStorage.getItem("email") || ""
-  );
+  const [email, setEmail] = useState(() => localStorage.getItem("email") || "");
   const [apiKey, setApiKey] = useState(
-    () => localStorage.getItem("apiKey") || ""
+    () => localStorage.getItem("apiKey") || "",
   );
 
   const handleChooseFolder = async () => {
@@ -479,7 +482,7 @@ function RecordingView({
       <header className="app-header">
         <div className="logo">
           <IconLogo />
-          <span className="logo-text">Call recorder</span>
+          <span className="logo-text">Noto</span>
         </div>
       </header>
 
@@ -577,7 +580,8 @@ export default function App() {
   } = useRecorder();
 
   if (state.status === "stopping") return <StoppingView />;
-  if (state.status === "uploading") return <StoppingView uploadMessage={state.uploadMessage} />;
+  if (state.status === "uploading")
+    return <StoppingView uploadMessage={state.uploadMessage} />;
 
   if (state.status === "recording") {
     return (

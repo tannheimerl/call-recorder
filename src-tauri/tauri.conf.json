@@ -6,7 +6,7 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "Call Recorder",
+    "productName": "Noto",
     "version": "0.1.2"
   },
   "tauri": {

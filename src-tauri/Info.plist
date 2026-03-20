@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Call Recorder benötigt Zugriff auf das Mikrofon für Audioaufnahmen.</string>
+    <string>Noto benötigt Zugriff auf das Mikrofon für Audioaufnahmen.</string>
 </dict>
 </plist>
