@@ -79,7 +79,8 @@ export function AudioVisualizer({ audioSource }: Props) {
         animId = requestAnimationFrame(tick);
         const t = ((performance.now() - startTime) / 1200) * Math.PI * 2;
         const heights = MAX_HEIGHTS.map((maxH, i) => {
-          const scale = 0.4 + 0.6 * (Math.sin(t + PHASE_OFFSETS[i]) * 0.5 + 0.5);
+          const scale =
+            0.4 + 0.6 * (Math.sin(t + PHASE_OFFSETS[i]) * 0.5 + 0.5);
           return maxH * scale;
         });
         drawBars(heights);
@@ -159,28 +160,35 @@ export function AudioVisualizer({ audioSource }: Props) {
 
         audioCtx.createMediaStreamSource(stream).connect(analyser);
 
-        const bufLen = analyser.fftSize;
-        const data = new Uint8Array(bufLen);
+        analyser.fftSize = 256; // 128 frequency bins
+        analyser.smoothingTimeConstant = 0.75;
+        const freqData = new Uint8Array(analyser.frequencyBinCount); // 128 bins
+
+        // Map 7 bars to log-spaced frequency bands (covers ~80Hz to ~8kHz for voice)
+        // Bins at 48000Hz / 256 = 187.5 Hz per bin
+        const binRanges: [number, number][] = [
+          [0, 1], // ~0–375Hz   (sub/bass)
+          [1, 3], // ~375–750Hz
+          [3, 6], // ~750–1.1kHz
+          [5, 10], // ~1–2kHz    (voice fundamental)
+          [9, 16], // ~2–3kHz
+          [14, 24], // ~3–5kHz
+          [22, 40], // ~5–8kHz    (presence/sibilance)
+        ];
 
         function draw() {
           if (cancelled) return;
           animId = requestAnimationFrame(draw);
 
-          analyser.getByteTimeDomainData(data);
+          analyser.getByteFrequencyData(freqData);
 
-          let rms = 0;
-          for (let i = 0; i < bufLen; i++) {
-            const v = (data[i] - 128) / 128;
-            rms += v * v;
-          }
-          const level = Math.min(
-            1,
-            Math.pow(Math.sqrt(rms / bufLen), 0.5) * 2,
-          );
-
-          const heights = ENVELOPE.map((e) =>
-            Math.max(minH, level * H * e),
-          );
+          const heights = binRanges.map(([lo, hi]) => {
+            let sum = 0;
+            for (let i = lo; i < hi; i++) sum += freqData[i];
+            const avg = sum / (hi - lo);
+            const level = Math.min(1, Math.sqrt(avg / 255) * 1);
+            return Math.max(minH, level * H);
+          });
           drawBars(heights);
         }
         draw();
