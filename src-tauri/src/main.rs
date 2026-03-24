@@ -83,6 +83,8 @@ fn start_volume_meter(
                 let chunk_bytes = 4800usize; // 2400 samples at 48kHz = 50ms
                 let mut buf = vec![0u8; chunk_bytes];
 
+                
+
                 loop {
                     match reader.read_exact(&mut buf) {
                         Ok(_) => {
@@ -104,20 +106,31 @@ fn start_volume_meter(
                             let mut planner = FftPlanner::<f32>::new();
                             let fft = planner.plan_fft_forward(n);
                             fft.process(&mut samples);
-                            // Map FFT bins to 7 frequency bands
-                            // At 48000 Hz with 2400 samples: bin_width = 48000 / 2400 = 20 Hz per bin
+                            // Map FFT bins to 7 voice-optimised frequency bands
+                            // At 48000 Hz with 2400 samples: bin_width = 20 Hz per bin
+                            //   Bar 0: 100–300 Hz  (bass/fundamental)     → bins 5–15
+                            //   Bar 1: 300–600 Hz  (low-mid)              → bins 15–30
+                            //   Bar 2: 600–1200 Hz (mid, vowel formant F1)→ bins 30–60
+                            //   Bar 3: 1200–2000 Hz(upper-mid, formant F2)→ bins 60–100
+                            //   Bar 4: 2000–3000 Hz(presence, consonants) → bins 100–150
+                            //   Bar 5: 3000–5000 Hz(sibilance/fricatives) → bins 150–250
+                            //   Bar 6: 5000–8000 Hz(air/high presence)    → bins 250–400
                             let bin_ranges: [(usize, usize); 7] = [
-                                (4,   12),
-                                (13,  25),
-                                (25,  50),
-                                (50,  100),
-                                (100, 175),
-                                (175, 300),
-                                (300, 500),
+                                (8,   15),
+                                (15,  30),
+                                (30,  60),  
+                                (60,  100),
+                                (100,  150),
+                                (150, 250),
+                                (250, 400),
                             ];
+                            // Per-band gain: lower frequencies need more amplification
+                            // (voice energy rolls off at higher frequencies).
+                            let gains: [f32; 7] = [8.0, 6.0, 4.0, 3.0, 12.0, 10.0, 8.0];
+                            // let gains: [f32; 7] = [0.5, 0.5, 2.0, 2.0, 12.0, 10.0, 8.0];
                             // Only use first half of FFT output (second half is mirror)
                             let half = samples.len() / 2;
-                            let bands: Vec<f32> = bin_ranges.iter().map(|&(lo, hi)| {
+                            let bands: Vec<f32> = bin_ranges.iter().zip(gains.iter()).map(|(&(lo, hi), &gain)| {
                                 let hi = hi.min(half);
                                 if lo >= hi { return 0.0; }
                                 let energy: f32 = samples[lo..hi]
@@ -125,7 +138,7 @@ fn start_volume_meter(
                                     .map(|c| c.norm_sqr())
                                     .sum::<f32>() / (hi - lo) as f32;
                                 let rms = energy.sqrt();
-                                (rms * 15.0).min(1.0)
+                                (rms * gain).min(1.0)
                             }).collect();
                             let _ = app_handle.emit_all(
                                 "volume-level",
