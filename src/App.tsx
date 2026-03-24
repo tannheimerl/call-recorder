@@ -6,6 +6,7 @@ import {
   RecordingConfig,
   UploadMode,
 } from "./useRecorder";
+import { AudioVisualizer } from "./AudioVisualizer";
 import "./App.css";
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
@@ -195,8 +196,12 @@ function SetupView({
 }: {
   onStart: (config: RecordingConfig) => void;
 }) {
-  const [audioSource, setAudioSource] = useState<AudioSource>("system");
-  const [saveFolder, setSaveFolder] = useState<string>("");
+  const [audioSource, setAudioSource] = useState<AudioSource>(
+    () => (localStorage.getItem("audioSource") as AudioSource) || "system",
+  );
+  const [saveFolder, setSaveFolder] = useState<string>(
+    () => localStorage.getItem("saveFolder") || "",
+  );
   const [starting, setStarting] = useState(false);
   const [uploadMode, setUploadMode] = useState<UploadMode>(
     () => (localStorage.getItem("uploadMode") as UploadMode) || "local",
@@ -215,7 +220,15 @@ function SetupView({
       directory: true,
       title: "Speicherort wählen",
     });
-    if (selected) setSaveFolder(selected as string);
+    if (selected) {
+      setSaveFolder(selected as string);
+      localStorage.setItem("saveFolder", selected as string);
+    }
+  };
+
+  const handleAudioSourceChange = (source: AudioSource) => {
+    setAudioSource(source);
+    localStorage.setItem("audioSource", source);
   };
 
   const handleModeChange = (mode: UploadMode) => {
@@ -303,7 +316,7 @@ function SetupView({
               <button
                 key={s.value}
                 className={`audio-card ${audioSource === s.value ? "active" : ""}`}
-                onClick={() => setAudioSource(s.value)}
+                onClick={() => handleAudioSourceChange(s.value)}
               >
                 <div className="audio-card-icon">{s.icon}</div>
                 <div className="audio-card-text">
@@ -488,9 +501,7 @@ function RecordingView({
 
       <div className="content recording-content">
         <div className="waveform-container">
-          <div className="waveform-icon">
-            <IconWave />
-          </div>
+          <AudioVisualizer audioSource={config?.audioSource} />
         </div>
 
         <div className="timer">{formatDuration(duration)}</div>
