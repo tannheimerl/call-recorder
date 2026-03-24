@@ -130,7 +130,8 @@ fn start_volume_meter(
                             // let gains: [f32; 7] = [0.5, 0.5, 2.0, 2.0, 12.0, 10.0, 8.0];
                             // Only use first half of FFT output (second half is mirror)
                             let half = samples.len() / 2;
-                            let bands: Vec<f32> = bin_ranges.iter().zip(gains.iter()).map(|(&(lo, hi), &gain)| {
+                            let noise_floors: [f32; 7] = [0.025, 0.02, 0.005, 0.003, 0.001, 0.001, 0.001];
+                            let bands: Vec<f32> = bin_ranges.iter().zip(gains.iter()).zip(noise_floors.iter()).map(|((&(lo, hi), &gain), &noise_floor)| {
                                 let hi = hi.min(half);
                                 if lo >= hi { return 0.0; }
                                 let energy: f32 = samples[lo..hi]
@@ -138,7 +139,8 @@ fn start_volume_meter(
                                     .map(|c| c.norm_sqr())
                                     .sum::<f32>() / (hi - lo) as f32;
                                 let rms = energy.sqrt();
-                                (rms * gain).min(1.0)
+                                let clean_rms = (rms - noise_floor).max(0.0);
+                                (clean_rms * gain).min(1.0)
                             }).collect();
                             let _ = app_handle.emit_all(
                                 "volume-level",

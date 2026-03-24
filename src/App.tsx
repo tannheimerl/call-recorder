@@ -575,7 +575,9 @@ function StoppingView({ uploadMessage }: { uploadMessage?: string }) {
         ) : (
           <>
             <p>Aufnahme wird gespeichert…</p>
-            <p className="hint">Syncthing überträgt die Datei automatisch.</p>
+            <p className="hint">
+              Die Zusammenfassung per Endpoint kann bis zu 60 Minuten dauern.
+            </p>
           </>
         )}
       </div>
