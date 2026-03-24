@@ -3,6 +3,7 @@
     windows_subsystem = "windows"
 )]
 
+use rustfft::{num_complex::Complex, FftPlanner};
 use std::io::Read;
 use std::process::{Child, Command as StdCommand, Stdio};
 use std::sync::Mutex;
@@ -79,26 +80,56 @@ fn start_volume_meter(
             thread::spawn(move || {
                 let mut reader = std::io::BufReader::new(stdout);
                 // 50 ms worth of samples: 48000 Hz × 0.05 s × 2 bytes = 4800 bytes
-                let chunk_bytes = 4800usize;
-                let sample_count = chunk_bytes / 2; // i16 samples
+                let chunk_bytes = 4800usize; // 2400 samples at 48kHz = 50ms
                 let mut buf = vec![0u8; chunk_bytes];
 
                 loop {
                     match reader.read_exact(&mut buf) {
                         Ok(_) => {
-                            let sum_sq: f64 = buf
+                            // Convert raw PCM bytes to f32 samples normalised to -1..1
+                            let mut samples: Vec<Complex<f32>> = buf
                                 .chunks_exact(2)
-                                .map(|b| {
-                                    let s = i16::from_le_bytes([b[0], b[1]]) as f64;
-                                    s * s
+                                .map(|b| Complex {
+                                    re: i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0,
+                                    im: 0.0,
                                 })
-                                .sum();
-                            let rms = (sum_sq / sample_count as f64).sqrt();
-                            // Normalize to 0..1 and apply 4× gain for quiet signals
-                            let level = ((rms / 32768.0).sqrt() * 2.0).min(1.0) as f32;
+                                .collect();
+                            // Apply Hann window to reduce spectral leakage
+                            let n = samples.len();
+                            for (i, s) in samples.iter_mut().enumerate() {
+                                let w = 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / (n - 1) as f64).cos()) as f32;
+                                s.re *= w;
+                            }
+                            // Run FFT
+                            let mut planner = FftPlanner::<f32>::new();
+                            let fft = planner.plan_fft_forward(n);
+                            fft.process(&mut samples);
+                            // Map FFT bins to 7 frequency bands
+                            // At 48000 Hz with 2400 samples: bin_width = 48000 / 2400 = 20 Hz per bin
+                            let bin_ranges: [(usize, usize); 7] = [
+                                (4,   12),
+                                (13,  25),
+                                (25,  50),
+                                (50,  100),
+                                (100, 175),
+                                (175, 300),
+                                (300, 500),
+                            ];
+                            // Only use first half of FFT output (second half is mirror)
+                            let half = samples.len() / 2;
+                            let bands: Vec<f32> = bin_ranges.iter().map(|&(lo, hi)| {
+                                let hi = hi.min(half);
+                                if lo >= hi { return 0.0; }
+                                let energy: f32 = samples[lo..hi]
+                                    .iter()
+                                    .map(|c| c.norm_sqr())
+                                    .sum::<f32>() / (hi - lo) as f32;
+                                let rms = energy.sqrt();
+                                (rms * 15.0).min(1.0)
+                            }).collect();
                             let _ = app_handle.emit_all(
                                 "volume-level",
-                                serde_json::json!({ "level": level }),
+                                serde_json::json!({ "bands": bands }),
                             );
                         }
                         Err(_) => break, // process was killed or ended

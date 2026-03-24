@@ -10,8 +10,6 @@ interface Props {
 const BAR_COUNT = 7;
 const BAR_W = 3;
 const RED = "#DB4035";
-const ENVELOPE = [0.6, 0.8, 0.95, 1.0, 0.95, 0.8, 0.6];
-
 // Phase offsets mirror the CSS animation delays, converted to radians
 const PHASE_OFFSETS = [0, 0.52, 1.05, 1.57, 1.05, 0.52, 0].map(
   (d) => (d / 1.2) * Math.PI * 2,
@@ -90,13 +88,13 @@ export function AudioVisualizer({ audioSource }: Props) {
 
     // ── System audio: driven by Tauri "volume-level" events from sox ──────────
     async function initSystem() {
-      let displayLevel = 0;
-      let targetLevel = 0;
+      let displayBands = new Array(7).fill(0);
+      let targetBands = new Array(7).fill(0);
       let unlisten: (() => void) | null = null;
 
       try {
-        unlisten = await listen<{ level: number }>("volume-level", (event) => {
-          targetLevel = event.payload.level;
+        unlisten = await listen<{ bands: number[] }>("volume-level", (event) => {
+          targetBands = event.payload.bands;
         });
 
         if (cancelled) {
@@ -116,12 +114,12 @@ export function AudioVisualizer({ audioSource }: Props) {
           if (cancelled) return;
           animId = requestAnimationFrame(draw);
 
-          // Asymmetric lerp: fast attack, slower release
-          const alpha = targetLevel > displayLevel ? 0.6 : 0.35;
-          displayLevel += (targetLevel - displayLevel) * alpha;
-
-          const heights = ENVELOPE.map((e) =>
-            Math.max(minH, displayLevel * H * e),
+          for (let i = 0; i < 7; i++) {
+            const alpha = targetBands[i] > displayBands[i] ? 0.6 : 0.35;
+            displayBands[i] += (targetBands[i] - displayBands[i]) * alpha;
+          }
+          const heights = displayBands.map((level) =>
+            Math.max(minH, level * H),
           );
           drawBars(heights);
         }
