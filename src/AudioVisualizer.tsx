@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/tauri";
+import { listen } from "@tauri-apps/api/event";
 import { AudioSource } from "./useRecorder";
 
 interface Props {
@@ -8,12 +10,13 @@ interface Props {
 const BAR_COUNT = 7;
 const BAR_W = 3;
 const RED = "#DB4035";
-// Phase offsets mirror the CSS animation delays (0, 0.1, 0.2, 0.3, 0.2, 0.1, 0s)
-// converted to radians over a 1.2s cycle: delay/1.2 * 2π
+const ENVELOPE = [0.6, 0.8, 0.95, 1.0, 0.95, 0.8, 0.6];
+
+// Phase offsets mirror the CSS animation delays, converted to radians
 const PHASE_OFFSETS = [0, 0.52, 1.05, 1.57, 1.05, 0.52, 0].map(
   (d) => (d / 1.2) * Math.PI * 2,
 );
-// Max bar heights matching IconWave proportions, scaled to fit canvas H=24
+// Max bar heights matching IconWave proportions, scaled to canvas H=24
 const MAX_HEIGHTS = [9.6, 19.2, 14.4, 24, 14.4, 19.2, 9.6];
 
 function drawRoundRect(
@@ -52,10 +55,9 @@ export function AudioVisualizer({ audioSource }: Props) {
     const W = canvas.width; // 40
     const H = canvas.height; // 24
     const gap = (W - BAR_COUNT * BAR_W) / (BAR_COUNT + 1);
+    const minH = H * 0.15;
 
     let animId = 0;
-    let audioCtx: AudioContext | null = null;
-    let stream: MediaStream | null = null;
     let cancelled = false;
 
     function drawBars(heights: number[]) {
@@ -77,8 +79,7 @@ export function AudioVisualizer({ audioSource }: Props) {
         animId = requestAnimationFrame(tick);
         const t = ((performance.now() - startTime) / 1200) * Math.PI * 2;
         const heights = MAX_HEIGHTS.map((maxH, i) => {
-          const phase = t + PHASE_OFFSETS[i];
-          const scale = 0.4 + 0.6 * (Math.sin(phase) * 0.5 + 0.5);
+          const scale = 0.4 + 0.6 * (Math.sin(t + PHASE_OFFSETS[i]) * 0.5 + 0.5);
           return maxH * scale;
         });
         drawBars(heights);
@@ -86,83 +87,129 @@ export function AudioVisualizer({ audioSource }: Props) {
       tick();
     }
 
-    async function init() {
+    // ── System audio: driven by Tauri "volume-level" events from sox ──────────
+    async function initSystem() {
+      let displayLevel = 0;
+      let targetLevel = 0;
+      let unlisten: (() => void) | null = null;
+
       try {
-        // Need permission first so enumerateDevices returns labels
-        const defaultStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: false,
+        unlisten = await listen<{ level: number }>("volume-level", (event) => {
+          targetLevel = event.payload.level;
         });
 
         if (cancelled) {
-          defaultStream.getTracks().forEach((t) => t.stop());
+          unlisten();
           return;
         }
 
-        let chosenStream = defaultStream;
-
-        if (audioSource === "system") {
-          try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const blackhole = devices.find(
-              (d) =>
-                d.kind === "audioinput" && d.label.includes("BlackHole"),
-            );
-            if (blackhole) {
-              const bhStream = await navigator.mediaDevices.getUserMedia({
-                audio: { deviceId: { exact: blackhole.deviceId } },
-                video: false,
-              });
-              defaultStream.getTracks().forEach((t) => t.stop());
-              chosenStream = bhStream;
-            }
-          } catch {
-            // Use default stream as fallback
-          }
-        }
+        await invoke("start_volume_meter");
 
         if (cancelled) {
-          chosenStream.getTracks().forEach((t) => t.stop());
+          unlisten();
+          await invoke("stop_volume_meter");
           return;
         }
-
-        stream = chosenStream;
-        audioCtx = new AudioContext();
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 128; // 64 frequency bins
-        analyser.smoothingTimeConstant = 0.75;
-        audioCtx.createMediaStreamSource(stream).connect(analyser);
-
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        // Sample 7 bins from the lower-mid spectrum (voice/instrument range)
-        const binIndices = [1, 3, 6, 10, 14, 18, 22];
 
         function draw() {
           if (cancelled) return;
           animId = requestAnimationFrame(draw);
-          analyser.getByteFrequencyData(data);
 
-          const heights = binIndices.map((idx) => {
-            const v = data[idx] / 255;
-            // Apply sqrt to amplify quiet signals; min 15% height
-            return Math.max(H * 0.15, Math.sqrt(v) * H);
-          });
+          // Asymmetric lerp: fast attack, slower release
+          const alpha = targetLevel > displayLevel ? 0.6 : 0.35;
+          displayLevel += (targetLevel - displayLevel) * alpha;
+
+          const heights = ENVELOPE.map((e) =>
+            Math.max(minH, displayLevel * H * e),
+          );
           drawBars(heights);
         }
         draw();
       } catch {
-        // getUserMedia failed (permission denied, no device, etc.) — animate statically
+        unlisten?.();
         startStaticAnimation();
       }
+
+      return () => {
+        unlisten?.();
+        invoke("stop_volume_meter").catch(() => {});
+      };
     }
 
-    init();
+    // ── Microphone: Web Audio API via getUserMedia + AnalyserNode ─────────────
+    async function initMicrophone() {
+      let stream: MediaStream | null = null;
+      let audioCtx: AudioContext | null = null;
+
+      try {
+        audioCtx = new AudioContext({ sampleRate: 48000 });
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.5;
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: 48000 },
+          video: false,
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        audioCtx.createMediaStreamSource(stream).connect(analyser);
+
+        const bufLen = analyser.fftSize;
+        const data = new Uint8Array(bufLen);
+
+        function draw() {
+          if (cancelled) return;
+          animId = requestAnimationFrame(draw);
+
+          analyser.getByteTimeDomainData(data);
+
+          let rms = 0;
+          for (let i = 0; i < bufLen; i++) {
+            const v = (data[i] - 128) / 128;
+            rms += v * v;
+          }
+          const level = Math.min(
+            1,
+            Math.pow(Math.sqrt(rms / bufLen), 0.5) * 2,
+          );
+
+          const heights = ENVELOPE.map((e) =>
+            Math.max(minH, level * H * e),
+          );
+          drawBars(heights);
+        }
+        draw();
+      } catch {
+        stream?.getTracks().forEach((t) => t.stop());
+        audioCtx?.close();
+        startStaticAnimation();
+      }
+
+      return () => {
+        stream?.getTracks().forEach((t) => t.stop());
+        audioCtx?.close();
+      };
+    }
+
+    // Dispatch to the right path and wire up cleanup
+    let cleanupFn: (() => void) | undefined;
+
+    const initPromise =
+      audioSource === "system" ? initSystem() : initMicrophone();
+
+    initPromise.then((fn) => {
+      cleanupFn = fn;
+    });
 
     return () => {
       cancelled = true;
       cancelAnimationFrame(animId);
-      stream?.getTracks().forEach((t) => t.stop());
-      audioCtx?.close();
+      cleanupFn?.();
     };
   }, [audioSource]);
 

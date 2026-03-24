@@ -158,6 +158,17 @@ export function useRecorder() {
         config.audioSource === "mikrofon" ||
         config.audioSource === "beides"
       ) {
+        // Force macOS to stabilise at 48000 Hz before recording starts
+        const warmupCtx = new AudioContext({ sampleRate: 48000 });
+        await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: 48000 },
+          video: false,
+        }).then(s => {
+          s.getTracks().forEach(t => t.stop());
+        }).catch(() => {});
+        await new Promise(r => setTimeout(r, 800));
+        warmupCtx.close();
+
         // rec vom Standard-Mikrofon
         child = await brewSpawn("rec", ["-r", "48000", "-c", "1", filepath]);
       } else {
