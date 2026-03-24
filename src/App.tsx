@@ -248,7 +248,7 @@ function SetupView({
     if (!canStart) return;
     setStarting(true);
     onStart({
-      meetingType: "Aufzeichung",
+      meetingType: "Aufzeichnung",
       audioSource,
       saveFolder,
       attachments: [],
@@ -362,17 +362,17 @@ function SetupView({
             />
             <input
               className="text-input"
-              type="email"
-              placeholder="E-Mail für Zusammenfassung"
-              value={email}
-              onChange={(e) => handleEmailChange(e.target.value)}
-            />
-            <input
-              className="text-input"
               type="password"
               placeholder="API Key"
               value={apiKey}
               onChange={(e) => handleApiKeyChange(e.target.value)}
+            />
+            <input
+              className="text-input"
+              type="email"
+              placeholder="E-Mail für Zusammenfassung"
+              value={email}
+              onChange={(e) => handleEmailChange(e.target.value)}
             />
           </section>
         )}
@@ -496,10 +496,13 @@ function RecordingView({
         <div className="timer">{formatDuration(duration)}</div>
 
         <div className="recording-meta">
-          <div className="meta-item">
+          {
+            // TODO: Meeting Type anzeigen sobald es mehr als "Aufzeichnung" gibt
+          }
+          {/* <div className="meta-item">
             <span className="meta-label">Typ</span>
             <span className="meta-value">{config?.meetingType}</span>
-          </div>
+          </div> */}
           <div className="meta-divider" />
           <div className="meta-item">
             <span className="meta-label">Audio</span>
@@ -542,9 +545,9 @@ function RecordingView({
           <IconStop />
           Aufnahme stoppen
         </button>
-        <p className="hint">
+        {/* <p className="hint">
           Das Fenster kann geschlossen werden — die Aufnahme läuft weiter.
-        </p>
+        </p> */}
       </footer>
     </div>
   );

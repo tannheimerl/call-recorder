@@ -18,16 +18,20 @@ const BREW_PATH = "/opt/homebrew/bin:/usr/local/bin";
 function brewSpawn(bin: string, args: string[]): Promise<Child> {
   const refs = args.map((_, i) => `"$${i + 1}"`).join(" ");
   return new Command("sh", [
-    "-c", `export PATH="${BREW_PATH}:$PATH"; exec ${bin} ${refs}`,
-    "--", ...args,
+    "-c",
+    `export PATH="${BREW_PATH}:$PATH"; exec ${bin} ${refs}`,
+    "--",
+    ...args,
   ]).spawn();
 }
 
 function brewExec(bin: string, args: string[]): Promise<unknown> {
   const refs = args.map((_, i) => `"$${i + 1}"`).join(" ");
   return new Command("sh", [
-    "-c", `export PATH="${BREW_PATH}:$PATH"; ${bin} ${refs}`,
-    "--", ...args,
+    "-c",
+    `export PATH="${BREW_PATH}:$PATH"; ${bin} ${refs}`,
+    "--",
+    ...args,
   ]).execute();
 }
 
@@ -35,7 +39,7 @@ export type MeetingType =
   | "Vorlesung"
   | "Business Meeting"
   | "Sonstiges"
-  | "Aufzeichung";
+  | "Aufzeichnung";
 export type AudioSource = "mikrofon" | "system" | "beides";
 export type UploadMode = "local" | "cloud";
 
@@ -139,18 +143,31 @@ export function useRecorder() {
 
     // Nur bei System Audio oder Beides umschalten
     if (config.audioSource === "system" || config.audioSource === "beides") {
-      await brewExec("SwitchAudioSource", ["-s", "Multiausgangsgerät", "-t", "output"]);
+      await brewExec("SwitchAudioSource", [
+        "-s",
+        "Multiausgangsgerät",
+        "-t",
+        "output",
+      ]);
       await new Promise((r) => setTimeout(r, 2000));
     }
 
     try {
       let child: Child;
-      if (config.audioSource === "mikrofon" || config.audioSource === "beides") {
+      if (
+        config.audioSource === "mikrofon" ||
+        config.audioSource === "beides"
+      ) {
         // rec vom Standard-Mikrofon
         child = await brewSpawn("rec", ["-r", "48000", "-c", "1", filepath]);
       } else {
         // sox von BlackHole
-        child = await brewSpawn("sox", ["-t", "coreaudio", "BlackHole 2ch", filepath]);
+        child = await brewSpawn("sox", [
+          "-t",
+          "coreaudio",
+          "BlackHole 2ch",
+          filepath,
+        ]);
       }
       recProcess.current = child;
       currentConfig.current = config;
@@ -179,7 +196,12 @@ export function useRecorder() {
 
     // Nur zurückschalten wenn System Audio verwendet wurde
     if (cfg?.audioSource === "system" || cfg?.audioSource === "beides") {
-      await brewExec("SwitchAudioSource", ["-s", "MacBook Pro-Lautsprecher", "-t", "output"]);
+      await brewExec("SwitchAudioSource", [
+        "-s",
+        "MacBook Pro-Lautsprecher",
+        "-t",
+        "output",
+      ]);
     }
 
     // Prozess sauber beenden
@@ -195,7 +217,12 @@ export function useRecorder() {
     currentConfig.current = null;
     currentFilePath.current = null;
 
-    if (cfg?.uploadMode === "cloud" && filePath && cfg.webhookUrl && cfg.email) {
+    if (
+      cfg?.uploadMode === "cloud" &&
+      filePath &&
+      cfg.webhookUrl &&
+      cfg.email
+    ) {
       setState((prev) => ({
         ...prev,
         status: "uploading",
