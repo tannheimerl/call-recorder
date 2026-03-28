@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/tauri";
 import { Command } from "@tauri-apps/api/shell";
 import {
   useRecorder,
@@ -189,6 +190,63 @@ const IconWave = () => (
     />
   </svg>
 );
+
+// ─── Prerequisites Screen ─────────────────────────────────────────────────────
+const INSTALL_COMMANDS: Record<string, string> = {
+  "rec (sox)": "brew install sox",
+  "SwitchAudioSource": "brew install switchaudio-osx",
+  "BlackHole 2ch": "brew install --cask blackhole-2ch",
+};
+
+function PrerequisitesScreen({ missing }: { missing: string[] }) {
+  return (
+    <div className="view setup-view">
+      <header className="app-header">
+        <div className="logo">
+          <IconLogo />
+          <span className="logo-text">Noto</span>
+        </div>
+      </header>
+
+      <div className="content">
+        <section className="section">
+          <label className="section-label">Setup erforderlich</label>
+          <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
+            Folgende Abhängigkeiten fehlen. Installiere sie mit Homebrew und starte die App neu:
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {missing.map((item) => (
+              <div
+                key={item}
+                style={{
+                  background: "var(--bg-card)",
+                  borderRadius: 10,
+                  padding: "10px 14px",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{item}</div>
+                <code
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-secondary)",
+                    background: "var(--bg-input)",
+                    padding: "3px 7px",
+                    borderRadius: 5,
+                    display: "block",
+                    userSelect: "all",
+                  }}
+                >
+                  {INSTALL_COMMANDS[item] ?? `# ${item} installieren`}
+                </code>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
 
 // ─── Setup View ──────────────────────────────────────────────────────────────
 function SetupView({
@@ -594,6 +652,22 @@ export default function App() {
     formatDuration,
     formatFileSize,
   } = useRecorder();
+
+  const [prereqMissing, setPrereqMissing] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    invoke<{ ok: boolean; missing: string[] }>("check_prerequisites").then(
+      (result) => setPrereqMissing(result.ok ? [] : result.missing),
+    ).catch(() => setPrereqMissing([])); // if invoke fails (e.g. web preview), don't block
+  }, []);
+
+  // Still checking
+  if (prereqMissing === null) return null;
+
+  // Missing dependencies
+  if (prereqMissing.length > 0) {
+    return <PrerequisitesScreen missing={prereqMissing} />;
+  }
 
   if (state.status === "stopping") return <StoppingView />;
   if (state.status === "uploading")

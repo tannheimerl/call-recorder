@@ -4,6 +4,7 @@
 )]
 
 use rustfft::{num_complex::Complex, FftPlanner};
+use serde::Serialize;
 use std::io::Read;
 use std::process::{Child, Command as StdCommand, Stdio};
 use std::sync::Mutex;
@@ -11,6 +12,58 @@ use std::thread;
 use tauri::{
     CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem,
 };
+
+#[derive(Serialize)]
+struct PrerequisiteCheck {
+    ok: bool,
+    missing: Vec<String>,
+}
+
+#[tauri::command]
+fn check_prerequisites() -> PrerequisiteCheck {
+    let brew_paths = ["/opt/homebrew/bin", "/usr/local/bin"];
+    let mut missing = Vec::new();
+
+    // Check for `rec` (part of sox)
+    let has_rec = brew_paths.iter().any(|p| {
+        std::path::Path::new(&format!("{}/rec", p)).exists()
+    });
+    if !has_rec {
+        missing.push("rec (sox)".to_string());
+    }
+
+    // Check for SwitchAudioSource
+    let has_sas = brew_paths.iter().any(|p| {
+        std::path::Path::new(&format!("{}/SwitchAudioSource", p)).exists()
+    });
+    if !has_sas {
+        missing.push("SwitchAudioSource".to_string());
+    }
+
+    // Check for BlackHole 2ch via SwitchAudioSource -a
+    let has_blackhole = if has_sas {
+        let sas_path = brew_paths
+            .iter()
+            .find(|p| std::path::Path::new(&format!("{}/SwitchAudioSource", p)).exists())
+            .map(|p| format!("{}/SwitchAudioSource", p))
+            .unwrap();
+        StdCommand::new(&sas_path)
+            .arg("-a")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("BlackHole"))
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    if !has_blackhole {
+        missing.push("BlackHole 2ch".to_string());
+    }
+
+    PrerequisiteCheck {
+        ok: missing.is_empty(),
+        missing,
+    }
+}
 
 fn build_tray_menu(is_recording: bool) -> SystemTrayMenu {
     if is_recording {
@@ -197,6 +250,7 @@ fn main() {
             update_tray_recording,
             start_volume_meter,
             stop_volume_meter,
+            check_prerequisites,
         ])
         .on_window_event(|event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event.event() {
