@@ -35,6 +35,78 @@ function brewExec(bin: string, args: string[]): Promise<unknown> {
   ]).execute();
 }
 
+// Returns the name of the current default audio output device using SwitchAudioSource.
+async function getCurrentOutputDevice(): Promise<string> {
+  const result = (await new Command("sh", [
+    "-c",
+    `export PATH="${BREW_PATH}:$PATH"; SwitchAudioSource -c`,
+  ]).execute()) as { stdout: string };
+  return result.stdout.trim();
+}
+
+// Returns the name of the first Multi-Output aggregate device whose active
+// sub-device list contains a device with "BlackHole" in its name.
+// Uses CoreAudio via Python3 ctypes — no external dependencies required.
+// Returns null if no such device is found.
+async function findMultiOutputDeviceWithBlackHole(): Promise<string | null> {
+  // Python constants:
+  //   kAudioObjectSystemObject                        = 1
+  //   kAudioHardwarePropertyDevices                   = 'dev#' = 0x64657623
+  //   kAudioObjectPropertyScopeGlobal                 = 'glob' = 0x676c6f62
+  //   kAudioObjectPropertyElementMain                 = 0
+  //   kAudioObjectPropertyName                        = 'lnam' = 0x6c6e616d  (CFStringRef)
+  //   kAudioAggregateDevicePropertyFullSubDeviceList  = 'grup' = 0x67727570  (CFArrayRef of UID CFStrings)
+  //   kCFStringEncodingUTF8                           = 0x08000100
+  //
+  // 'grup' (Full) is used instead of 'agrp' (Active) because ActiveSubDeviceList is
+  // empty when the aggregate device is not the current default output.
+  // 'lnam' is the correct CFString name selector; the deprecated 'name' returns a
+  // raw C-string and treating it as CFStringRef causes a segfault.
+  const pyScript = `import ctypes
+CA=ctypes.CDLL("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
+CF=ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+PA=ctypes.c_uint32*3
+CA.AudioObjectGetPropertyDataSize.argtypes=[ctypes.c_uint32,ctypes.POINTER(PA),ctypes.c_uint32,ctypes.c_void_p,ctypes.POINTER(ctypes.c_uint32)]
+CA.AudioObjectGetPropertyDataSize.restype=ctypes.c_int32
+CA.AudioObjectGetPropertyData.argtypes=[ctypes.c_uint32,ctypes.POINTER(PA),ctypes.c_uint32,ctypes.c_void_p,ctypes.POINTER(ctypes.c_uint32),ctypes.c_void_p]
+CA.AudioObjectGetPropertyData.restype=ctypes.c_int32
+CF.CFArrayGetCount.argtypes=[ctypes.c_void_p];CF.CFArrayGetCount.restype=ctypes.c_long
+CF.CFArrayGetValueAtIndex.argtypes=[ctypes.c_void_p,ctypes.c_long];CF.CFArrayGetValueAtIndex.restype=ctypes.c_void_p
+CF.CFStringGetCString.argtypes=[ctypes.c_void_p,ctypes.c_char_p,ctypes.c_long,ctypes.c_uint32];CF.CFStringGetCString.restype=ctypes.c_bool
+CF.CFRelease.argtypes=[ctypes.c_void_p];CF.CFRelease.restype=None
+def mk(s,sc=0x676c6f62,el=0):return PA(s,sc,el)
+def cs(ref):
+ b=ctypes.create_string_buffer(512)
+ return b.value.decode("utf-8","replace") if CF.CFStringGetCString(ref,b,512,0x08000100) else ""
+def nm(d):
+ a=mk(0x6c6e616d);r=(ctypes.c_void_p*1)(0);sz=ctypes.c_uint32(8)
+ if CA.AudioObjectGetPropertyData(d,a,0,None,ctypes.byref(sz),r)or not r[0]:return""
+ s=cs(r[0]);CF.CFRelease(r[0]);return s
+a=mk(0x64657623);sz=ctypes.c_uint32(0);CA.AudioObjectGetPropertyDataSize(1,a,0,None,ctypes.byref(sz))
+ids=(ctypes.c_uint32*(sz.value//4))();sz2=ctypes.c_uint32(sz.value);CA.AudioObjectGetPropertyData(1,a,0,None,ctypes.byref(sz2),ids)
+for d in ids:
+ fa=mk(0x67727570);fsz=ctypes.c_uint32(0)
+ if CA.AudioObjectGetPropertyDataSize(d,fa,0,None,ctypes.byref(fsz))or not fsz.value:continue
+ arr=(ctypes.c_void_p*1)(0);fsz2=ctypes.c_uint32(fsz.value)
+ if CA.AudioObjectGetPropertyData(d,fa,0,None,ctypes.byref(fsz2),arr)or not arr[0]:continue
+ n=CF.CFArrayGetCount(arr[0]);f=False
+ for i in range(n):
+  uid=CF.CFArrayGetValueAtIndex(arr[0],i)
+  if uid and"BlackHole"in cs(uid):f=True;break
+ CF.CFRelease(arr[0])
+ if f:print(nm(d));raise SystemExit(0)`;
+
+  const result = (await new Command("sh", [
+    "-c",
+    `/usr/bin/python3 -c "$1"`,
+    "--",
+    pyScript,
+  ]).execute()) as { stdout: string; stderr: string; code: number | null };
+
+  const name = result.stdout.trim();
+  return name || null;
+}
+
 export type MeetingType =
   | "Vorlesung"
   | "Business Meeting"
@@ -78,6 +150,7 @@ export function useRecorder() {
   const startTimeRef = useRef<number>(0);
   const currentConfig = useRef<RecordingConfig | null>(null);
   const currentFilePath = useRef<string | null>(null);
+  const defaultOutputDevice = useRef<string>("");
 
   // Listen for tray stop event
   useEffect(() => {
@@ -143,13 +216,22 @@ export function useRecorder() {
 
     // Nur bei System Audio oder Beides umschalten
     if (config.audioSource === "system" || config.audioSource === "beides") {
-      await brewExec("SwitchAudioSource", [
-        "-s",
-        "Multiausgangsgerät",
-        "-t",
-        "output",
-      ]);
-      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        defaultOutputDevice.current = await getCurrentOutputDevice();
+        const multiOutputDevice = await findMultiOutputDeviceWithBlackHole();
+        if (!multiOutputDevice) {
+          throw new Error(
+            "Kein Multi-Output-Gerät mit BlackHole gefunden.\n\n" +
+            "Bitte erstellen Sie in der Audio-MIDI-Konfiguration ein Multi-Output-Gerät " +
+            "das BlackHole als Untergerät enthält."
+          );
+        }
+        await brewExec("SwitchAudioSource", ["-s", multiOutputDevice, "-t", "output"]);
+        await new Promise((r) => setTimeout(r, 2000));
+      } catch (err) {
+        alert(`Fehler beim Aktivieren des System-Audios: ${err}`);
+        return;
+      }
     }
 
     try {
@@ -207,12 +289,11 @@ export function useRecorder() {
 
     // Nur zurückschalten wenn System Audio verwendet wurde
     if (cfg?.audioSource === "system" || cfg?.audioSource === "beides") {
-      await brewExec("SwitchAudioSource", [
-        "-s",
-        "MacBook Pro-Lautsprecher",
-        "-t",
-        "output",
-      ]);
+      const restoreDevice = defaultOutputDevice.current;
+      defaultOutputDevice.current = "";
+      if (restoreDevice) {
+        await brewExec("SwitchAudioSource", ["-s", restoreDevice, "-t", "output"]);
+      }
     }
 
     // Prozess sauber beenden
