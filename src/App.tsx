@@ -123,73 +123,73 @@ const IconLogo = () => (
   </svg>
 );
 
-const IconWave = () => (
-  <svg width="32" height="20" viewBox="0 0 32 20" fill="none">
-    <rect
-      x="0"
-      y="6"
-      width="3"
-      height="8"
-      rx="1.5"
-      fill="currentColor"
-      className="wave-bar bar1"
-    />
-    <rect
-      x="5"
-      y="2"
-      width="3"
-      height="16"
-      rx="1.5"
-      fill="currentColor"
-      className="wave-bar bar2"
-    />
-    <rect
-      x="10"
-      y="4"
-      width="3"
-      height="12"
-      rx="1.5"
-      fill="currentColor"
-      className="wave-bar bar3"
-    />
-    <rect
-      x="15"
-      y="0"
-      width="3"
-      height="20"
-      rx="1.5"
-      fill="currentColor"
-      className="wave-bar bar4"
-    />
-    <rect
-      x="20"
-      y="4"
-      width="3"
-      height="12"
-      rx="1.5"
-      fill="currentColor"
-      className="wave-bar bar5"
-    />
-    <rect
-      x="25"
-      y="2"
-      width="3"
-      height="16"
-      rx="1.5"
-      fill="currentColor"
-      className="wave-bar bar6"
-    />
-    <rect
-      x="30"
-      y="6"
-      width="3"
-      height="8"
-      rx="1.5"
-      fill="currentColor"
-      className="wave-bar bar7"
-    />
-  </svg>
-);
+// const IconWave = () => (
+//   <svg width="32" height="20" viewBox="0 0 32 20" fill="none">
+//     <rect
+//       x="0"
+//       y="6"
+//       width="3"
+//       height="8"
+//       rx="1.5"
+//       fill="currentColor"
+//       className="wave-bar bar1"
+//     />
+//     <rect
+//       x="5"
+//       y="2"
+//       width="3"
+//       height="16"
+//       rx="1.5"
+//       fill="currentColor"
+//       className="wave-bar bar2"
+//     />
+//     <rect
+//       x="10"
+//       y="4"
+//       width="3"
+//       height="12"
+//       rx="1.5"
+//       fill="currentColor"
+//       className="wave-bar bar3"
+//     />
+//     <rect
+//       x="15"
+//       y="0"
+//       width="3"
+//       height="20"
+//       rx="1.5"
+//       fill="currentColor"
+//       className="wave-bar bar4"
+//     />
+//     <rect
+//       x="20"
+//       y="4"
+//       width="3"
+//       height="12"
+//       rx="1.5"
+//       fill="currentColor"
+//       className="wave-bar bar5"
+//     />
+//     <rect
+//       x="25"
+//       y="2"
+//       width="3"
+//       height="16"
+//       rx="1.5"
+//       fill="currentColor"
+//       className="wave-bar bar6"
+//     />
+//     <rect
+//       x="30"
+//       y="6"
+//       width="3"
+//       height="8"
+//       rx="1.5"
+//       fill="currentColor"
+//       className="wave-bar bar7"
+//     />
+//   </svg>
+// );
 
 // ─── Prerequisites Screen ─────────────────────────────────────────────────────
 const INSTALL_COMMANDS: Record<string, string> = {

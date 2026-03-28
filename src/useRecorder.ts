@@ -27,9 +27,9 @@ function brewCommand(bin: string, args: string[]): Command {
   ]);
 }
 
-function brewSpawn(bin: string, args: string[]): Promise<Child> {
-  return brewCommand(bin, args).spawn();
-}
+// function brewSpawn(bin: string, args: string[]): Promise<Child> {
+//   return brewCommand(bin, args).spawn();
+// }
 
 function brewExec(bin: string, args: string[]): Promise<unknown> {
   const refs = args.map((_, i) => `"$${i + 1}"`).join(" ");
@@ -175,13 +175,22 @@ export function useRecorder() {
       defaultOutputDevice.current = "";
       if (restoreDevice) {
         try {
-          await brewExec("SwitchAudioSource", ["-s", restoreDevice, "-t", "output"]);
+          await brewExec("SwitchAudioSource", [
+            "-s",
+            restoreDevice,
+            "-t",
+            "output",
+          ]);
         } catch (_) {}
       }
     }
 
-    try { await new Command("pkill", ["-INT", "-x", "rec"]).execute(); } catch (_) {}
-    try { await new Command("pkill", ["-INT", "-x", "sox"]).execute(); } catch (_) {}
+    try {
+      await new Command("pkill", ["-INT", "-x", "rec"]).execute();
+    } catch (_) {}
+    try {
+      await new Command("pkill", ["-INT", "-x", "sox"]).execute();
+    } catch (_) {}
 
     setState((prev) => ({ ...prev, status: "idle", error: message }));
   }, []);
@@ -196,7 +205,9 @@ export function useRecorder() {
     const unlisten = listen<string>("recording-error", (event) => {
       handleRecordingError(event.payload);
     });
-    return () => { unlisten.then((f) => f()); };
+    return () => {
+      unlisten.then((f) => f());
+    };
   }, [handleRecordingError]);
 
   // Listen for tray stop event
@@ -247,104 +258,122 @@ export function useRecorder() {
     return selected as string | null;
   }, []);
 
-  const startRecording = useCallback(async (config: RecordingConfig) => {
-    setState((prev) => ({ ...prev, error: null }));
-    const now = new Date();
-    const ts = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const safeName = config.meetingType.replace(/ /g, "_");
-    const filename = `${safeName}_${ts}.mp3`;
+  const startRecording = useCallback(
+    async (config: RecordingConfig) => {
+      setState((prev) => ({ ...prev, error: null }));
+      const now = new Date();
+      const ts = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const safeName = config.meetingType.replace(/ /g, "_");
+      const filename = `${safeName}_${ts}.mp3`;
 
-    let filepath: string;
-    if (config.uploadMode === "cloud") {
-      const tmp = await tempdir();
-      filepath = `${tmp}/${filename}`;
-    } else {
-      filepath = `${config.saveFolder}/${filename}`;
-    }
+      let filepath: string;
+      if (config.uploadMode === "cloud") {
+        const tmp = await tempdir();
+        filepath = `${tmp}/${filename}`;
+      } else {
+        filepath = `${config.saveFolder}/${filename}`;
+      }
 
-    // Nur bei System Audio oder Beides umschalten
-    if (config.audioSource === "system" || config.audioSource === "beides") {
-      try {
-        defaultOutputDevice.current = await getCurrentOutputDevice();
-        const multiOutputDevice = await findMultiOutputDeviceWithBlackHole();
-        if (!multiOutputDevice) {
-          throw new Error(
-            "Kein Multi-Output-Gerät mit BlackHole gefunden.\n\n" +
-            "Bitte erstellen Sie in der Audio-MIDI-Konfiguration ein Multi-Output-Gerät " +
-            "das BlackHole als Untergerät enthält."
-          );
+      // Nur bei System Audio oder Beides umschalten
+      if (config.audioSource === "system" || config.audioSource === "beides") {
+        try {
+          defaultOutputDevice.current = await getCurrentOutputDevice();
+          const multiOutputDevice = await findMultiOutputDeviceWithBlackHole();
+          if (!multiOutputDevice) {
+            throw new Error(
+              "Kein Multi-Output-Gerät mit BlackHole gefunden.\n\n" +
+                "Bitte erstellen Sie in der Audio-MIDI-Konfiguration ein Multi-Output-Gerät " +
+                "das BlackHole als Untergerät enthält.",
+            );
+          }
+          await brewExec("SwitchAudioSource", [
+            "-s",
+            multiOutputDevice,
+            "-t",
+            "output",
+          ]);
+          await new Promise((r) => setTimeout(r, 2000));
+        } catch (err) {
+          setState((prev) => ({
+            ...prev,
+            error: `System-Audio konnte nicht aktiviert werden: ${err}`,
+          }));
+          return;
         }
-        await brewExec("SwitchAudioSource", ["-s", multiOutputDevice, "-t", "output"]);
-        await new Promise((r) => setTimeout(r, 2000));
+      }
+
+      try {
+        let cmd: Command;
+        if (
+          config.audioSource === "mikrofon" ||
+          config.audioSource === "beides"
+        ) {
+          // Force macOS to stabilise at 48000 Hz before recording starts
+          const warmupCtx = new AudioContext({ sampleRate: 48000 });
+          await navigator.mediaDevices
+            .getUserMedia({
+              audio: { sampleRate: 48000 },
+              video: false,
+            })
+            .then((s) => {
+              s.getTracks().forEach((t) => t.stop());
+            })
+            .catch(() => {});
+          await new Promise((r) => setTimeout(r, 800));
+          warmupCtx.close();
+
+          // rec vom Standard-Mikrofon
+          cmd = brewCommand("rec", ["-r", "48000", "-c", "1", filepath]);
+        } else {
+          // sox von BlackHole
+          cmd = brewCommand("sox", [
+            "-t",
+            "coreaudio",
+            "BlackHole 2ch",
+            filepath,
+          ]);
+        }
+
+        // Capture stderr and watch for unexpected process exit.
+        // The close handler only fires handleRecordingError if currentConfig is
+        // still set (i.e. we haven't already started an intentional stop).
+        let stderrBuf = "";
+        cmd.stderr.on("data", (line: string) => {
+          stderrBuf += line + "\n";
+        });
+        cmd.on("close", ({ code }: { code: number | null }) => {
+          if (code !== null && code !== 0 && currentConfig.current !== null) {
+            void handleRecordingError(
+              stderrBuf.trim() || `Aufnahme unerwartet beendet (Code ${code})`,
+            );
+          }
+        });
+
+        const child = await cmd.spawn();
+        recProcess.current = child;
+        currentConfig.current = config;
+        currentFilePath.current = filepath;
+        startTimeRef.current = Date.now();
+
+        setState({
+          status: "recording",
+          duration: 0,
+          fileSize: 0,
+          filePath: filepath,
+          config,
+          uploadMessage: "",
+          error: null,
+        });
       } catch (err) {
+        console.error("rec start error:", err);
         setState((prev) => ({
           ...prev,
-          error: `System-Audio konnte nicht aktiviert werden: ${err}`,
+          error: `Aufnahme konnte nicht gestartet werden: ${err}`,
         }));
-        return;
       }
-    }
-
-    try {
-      let cmd: Command;
-      if (
-        config.audioSource === "mikrofon" ||
-        config.audioSource === "beides"
-      ) {
-        // Force macOS to stabilise at 48000 Hz before recording starts
-        const warmupCtx = new AudioContext({ sampleRate: 48000 });
-        await navigator.mediaDevices.getUserMedia({
-          audio: { sampleRate: 48000 },
-          video: false,
-        }).then(s => {
-          s.getTracks().forEach(t => t.stop());
-        }).catch(() => {});
-        await new Promise(r => setTimeout(r, 800));
-        warmupCtx.close();
-
-        // rec vom Standard-Mikrofon
-        cmd = brewCommand("rec", ["-r", "48000", "-c", "1", filepath]);
-      } else {
-        // sox von BlackHole
-        cmd = brewCommand("sox", ["-t", "coreaudio", "BlackHole 2ch", filepath]);
-      }
-
-      // Capture stderr and watch for unexpected process exit.
-      // The close handler only fires handleRecordingError if currentConfig is
-      // still set (i.e. we haven't already started an intentional stop).
-      let stderrBuf = "";
-      cmd.stderr.on("data", (line: string) => { stderrBuf += line + "\n"; });
-      cmd.on("close", ({ code }: { code: number | null }) => {
-        if (code !== null && code !== 0 && currentConfig.current !== null) {
-          void handleRecordingError(
-            stderrBuf.trim() || `Aufnahme unerwartet beendet (Code ${code})`,
-          );
-        }
-      });
-
-      const child = await cmd.spawn();
-      recProcess.current = child;
-      currentConfig.current = config;
-      currentFilePath.current = filepath;
-      startTimeRef.current = Date.now();
-
-      setState({
-        status: "recording",
-        duration: 0,
-        fileSize: 0,
-        filePath: filepath,
-        config,
-        uploadMessage: "",
-        error: null,
-      });
-    } catch (err) {
-      console.error("rec start error:", err);
-      setState((prev) => ({
-        ...prev,
-        error: `Aufnahme konnte nicht gestartet werden: ${err}`,
-      }));
-    }
-  }, [handleRecordingError]);
+    },
+    [handleRecordingError],
+  );
 
   const stopRecording = useCallback(async () => {
     setState((prev) => ({ ...prev, status: "stopping" }));
@@ -362,7 +391,12 @@ export function useRecorder() {
       const restoreDevice = defaultOutputDevice.current;
       defaultOutputDevice.current = "";
       if (restoreDevice) {
-        await brewExec("SwitchAudioSource", ["-s", restoreDevice, "-t", "output"]);
+        await brewExec("SwitchAudioSource", [
+          "-s",
+          restoreDevice,
+          "-t",
+          "output",
+        ]);
       }
     }
 
