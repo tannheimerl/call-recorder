@@ -194,7 +194,7 @@ const IconWave = () => (
 // ─── Prerequisites Screen ─────────────────────────────────────────────────────
 const INSTALL_COMMANDS: Record<string, string> = {
   "rec (sox)": "brew install sox",
-  "SwitchAudioSource": "brew install switchaudio-osx",
+  SwitchAudioSource: "brew install switchaudio-osx",
   "BlackHole 2ch": "brew install --cask blackhole-2ch",
 };
 
@@ -211,8 +211,15 @@ function PrerequisitesScreen({ missing }: { missing: string[] }) {
       <div className="content">
         <section className="section">
           <label className="section-label">Setup erforderlich</label>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
-            Folgende Abhängigkeiten fehlen. Installiere sie mit Homebrew und starte die App neu:
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--text-secondary)",
+              marginBottom: 12,
+            }}
+          >
+            Folgende Abhängigkeiten fehlen. Installiere sie mit Homebrew und
+            starte die App neu:
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {missing.map((item) => (
@@ -225,7 +232,9 @@ function PrerequisitesScreen({ missing }: { missing: string[] }) {
                   border: "1px solid var(--border)",
                 }}
               >
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{item}</div>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+                  {item}
+                </div>
                 <code
                   style={{
                     fontSize: 12,
@@ -339,13 +348,13 @@ function SetupView({
     {
       value: "mikrofon",
       label: "Mikrofon",
-      sub: "Nur deine Stimme",
+      sub: "Nur Stimmen in deiner Nähe",
       icon: <IconMic />,
     },
     {
       value: "system",
       label: "System Audio",
-      sub: "Alle Teilnehmer via BlackHole",
+      sub: "Alle Programme und Browser-Tabs",
       icon: <IconMonitor />,
     },
     // {
@@ -644,7 +653,13 @@ function StoppingView({ uploadMessage }: { uploadMessage?: string }) {
 }
 
 // ─── Error Banner ─────────────────────────────────────────────────────────────
-function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+function ErrorBanner({
+  message,
+  onDismiss,
+}: {
+  message: string;
+  onDismiss: () => void;
+}) {
   return (
     <div
       style={{
@@ -700,9 +715,9 @@ export default function App() {
   const [prereqMissing, setPrereqMissing] = useState<string[] | null>(null);
 
   useEffect(() => {
-    invoke<{ ok: boolean; missing: string[] }>("check_prerequisites").then(
-      (result) => setPrereqMissing(result.ok ? [] : result.missing),
-    ).catch(() => setPrereqMissing([])); // if invoke fails (e.g. web preview), don't block
+    invoke<{ ok: boolean; missing: string[] }>("check_prerequisites")
+      .then((result) => setPrereqMissing(result.ok ? [] : result.missing))
+      .catch(() => setPrereqMissing([])); // if invoke fails (e.g. web preview), don't block
   }, []);
 
   // Still checking
@@ -717,9 +732,20 @@ export default function App() {
     <ErrorBanner message={state.error} onDismiss={clearError} />
   ) : null;
 
-  if (state.status === "stopping") return <>{errorBanner}<StoppingView /></>;
+  if (state.status === "stopping")
+    return (
+      <>
+        {errorBanner}
+        <StoppingView />
+      </>
+    );
   if (state.status === "uploading")
-    return <>{errorBanner}<StoppingView uploadMessage={state.uploadMessage} /></>;
+    return (
+      <>
+        {errorBanner}
+        <StoppingView uploadMessage={state.uploadMessage} />
+      </>
+    );
 
   if (state.status === "recording") {
     return (
@@ -738,5 +764,10 @@ export default function App() {
     );
   }
 
-  return <>{errorBanner}<SetupView onStart={startRecording} /></>;
+  return (
+    <>
+      {errorBanner}
+      <SetupView onStart={startRecording} />
+    </>
+  );
 }
