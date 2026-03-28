@@ -643,6 +643,49 @@ function StoppingView({ uploadMessage }: { uploadMessage?: string }) {
   );
 }
 
+// ─── Error Banner ─────────────────────────────────────────────────────────────
+function ErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 12,
+        left: 12,
+        right: 12,
+        zIndex: 9999,
+        background: "#c0392b",
+        color: "#fff",
+        borderRadius: 10,
+        padding: "10px 14px",
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 10,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+        fontSize: 13,
+        lineHeight: 1.4,
+      }}
+    >
+      <span style={{ flex: 1, wordBreak: "break-word" }}>{message}</span>
+      <button
+        onClick={onDismiss}
+        style={{
+          background: "none",
+          border: "none",
+          color: "#fff",
+          cursor: "pointer",
+          fontSize: 16,
+          lineHeight: 1,
+          padding: 0,
+          flexShrink: 0,
+        }}
+        aria-label="Schließen"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const {
@@ -651,6 +694,7 @@ export default function App() {
     stopRecording,
     formatDuration,
     formatFileSize,
+    clearError,
   } = useRecorder();
 
   const [prereqMissing, setPrereqMissing] = useState<string[] | null>(null);
@@ -669,23 +713,30 @@ export default function App() {
     return <PrerequisitesScreen missing={prereqMissing} />;
   }
 
-  if (state.status === "stopping") return <StoppingView />;
+  const errorBanner = state.error ? (
+    <ErrorBanner message={state.error} onDismiss={clearError} />
+  ) : null;
+
+  if (state.status === "stopping") return <>{errorBanner}<StoppingView /></>;
   if (state.status === "uploading")
-    return <StoppingView uploadMessage={state.uploadMessage} />;
+    return <>{errorBanner}<StoppingView uploadMessage={state.uploadMessage} /></>;
 
   if (state.status === "recording") {
     return (
-      <RecordingView
-        duration={state.duration}
-        fileSize={state.fileSize}
-        filePath={state.filePath}
-        config={state.config}
-        onStop={stopRecording}
-        formatDuration={formatDuration}
-        formatFileSize={formatFileSize}
-      />
+      <>
+        {errorBanner}
+        <RecordingView
+          duration={state.duration}
+          fileSize={state.fileSize}
+          filePath={state.filePath}
+          config={state.config}
+          onStop={stopRecording}
+          formatDuration={formatDuration}
+          formatFileSize={formatFileSize}
+        />
+      </>
     );
   }
 
-  return <SetupView onStart={startRecording} />;
+  return <>{errorBanner}<SetupView onStart={startRecording} /></>;
 }

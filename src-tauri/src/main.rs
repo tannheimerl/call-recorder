@@ -5,7 +5,7 @@
 
 use rustfft::{num_complex::Complex, FftPlanner};
 use serde::Serialize;
-use std::io::Read;
+use std::io::{BufRead, Read};
 use std::process::{Child, Command as StdCommand, Stdio};
 use std::sync::Mutex;
 use std::thread;
@@ -121,14 +121,30 @@ fn start_volume_meter(
              -t raw -r 48000 -e signed-integer -b 16 -c 1 -",
         ])
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn();
 
     match result {
         Ok(mut child) => {
             let stdout = child.stdout.take().unwrap();
+            let stderr = child.stderr.take().unwrap();
             *guard = Some(child);
             drop(guard); // release lock before spawning reader thread
+
+            // Monitor stderr — emit recording-error for any sox FAIL/error lines.
+            let app_handle_err = app_handle.clone();
+            thread::spawn(move || {
+                let reader = std::io::BufReader::new(stderr);
+                for line in reader.lines().flatten() {
+                    let lower = line.to_lowercase();
+                    if lower.contains("fail") || lower.contains("error") {
+                        let _ = app_handle_err.emit_all(
+                            "recording-error",
+                            format!("Audio-Eingabefehler: {}", line.trim()),
+                        );
+                    }
+                }
+            });
 
             thread::spawn(move || {
                 let mut reader = std::io::BufReader::new(stdout);
@@ -207,6 +223,10 @@ fn start_volume_meter(
         }
         Err(e) => {
             eprintln!("start_volume_meter: failed to spawn sox: {}", e);
+            let _ = app_handle.emit_all(
+                "recording-error",
+                format!("Audioeingang konnte nicht gestartet werden: {}", e),
+            );
         }
     }
 }

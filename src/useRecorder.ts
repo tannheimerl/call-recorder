@@ -15,14 +15,20 @@ import { fetch as tauriFetch, Body } from "@tauri-apps/api/http";
 // are handled safely without any shell-quoting juggling.
 const BREW_PATH = "/opt/homebrew/bin:/usr/local/bin";
 
-function brewSpawn(bin: string, args: string[]): Promise<Child> {
+// Returns a configured Command without spawning — callers can attach event
+// listeners before calling .spawn().
+function brewCommand(bin: string, args: string[]): Command {
   const refs = args.map((_, i) => `"$${i + 1}"`).join(" ");
   return new Command("sh", [
     "-c",
     `export PATH="${BREW_PATH}:$PATH"; exec ${bin} ${refs}`,
     "--",
     ...args,
-  ]).spawn();
+  ]);
+}
+
+function brewSpawn(bin: string, args: string[]): Promise<Child> {
+  return brewCommand(bin, args).spawn();
 }
 
 function brewExec(bin: string, args: string[]): Promise<unknown> {
@@ -133,6 +139,7 @@ export interface RecorderState {
   filePath: string | null;
   config: RecordingConfig | null;
   uploadMessage: string;
+  error: string | null;
 }
 
 export function useRecorder() {
@@ -143,6 +150,7 @@ export function useRecorder() {
     filePath: null,
     config: null,
     uploadMessage: "",
+    error: null,
   });
 
   const recProcess = useRef<Child | null>(null);
@@ -151,6 +159,45 @@ export function useRecorder() {
   const currentConfig = useRef<RecordingConfig | null>(null);
   const currentFilePath = useRef<string | null>(null);
   const defaultOutputDevice = useRef<string>("");
+
+  // Cleans up audio device and processes after a recording failure, then
+  // transitions back to idle with the error message visible.
+  const handleRecordingError = useCallback(async (message: string) => {
+    const cfg = currentConfig.current;
+    if (!cfg) return; // guard: already stopped or never started
+
+    // Clear refs before cleanup so the process close-event doesn't re-enter.
+    currentConfig.current = null;
+    currentFilePath.current = null;
+
+    if (cfg.audioSource === "system" || cfg.audioSource === "beides") {
+      const restoreDevice = defaultOutputDevice.current;
+      defaultOutputDevice.current = "";
+      if (restoreDevice) {
+        try {
+          await brewExec("SwitchAudioSource", ["-s", restoreDevice, "-t", "output"]);
+        } catch (_) {}
+      }
+    }
+
+    try { await new Command("pkill", ["-INT", "-x", "rec"]).execute(); } catch (_) {}
+    try { await new Command("pkill", ["-INT", "-x", "sox"]).execute(); } catch (_) {}
+
+    setState((prev) => ({ ...prev, status: "idle", error: message }));
+  }, []);
+
+  const clearError = useCallback(() => {
+    setState((prev) => ({ ...prev, error: null }));
+  }, []);
+
+  // Listen for recording-error events emitted by the Rust backend
+  // (e.g. volume-meter sox spawn failure or stderr FAIL lines).
+  useEffect(() => {
+    const unlisten = listen<string>("recording-error", (event) => {
+      handleRecordingError(event.payload);
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, [handleRecordingError]);
 
   // Listen for tray stop event
   useEffect(() => {
@@ -201,6 +248,7 @@ export function useRecorder() {
   }, []);
 
   const startRecording = useCallback(async (config: RecordingConfig) => {
+    setState((prev) => ({ ...prev, error: null }));
     const now = new Date();
     const ts = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const safeName = config.meetingType.replace(/ /g, "_");
@@ -229,13 +277,16 @@ export function useRecorder() {
         await brewExec("SwitchAudioSource", ["-s", multiOutputDevice, "-t", "output"]);
         await new Promise((r) => setTimeout(r, 2000));
       } catch (err) {
-        alert(`Fehler beim Aktivieren des System-Audios: ${err}`);
+        setState((prev) => ({
+          ...prev,
+          error: `System-Audio konnte nicht aktiviert werden: ${err}`,
+        }));
         return;
       }
     }
 
     try {
-      let child: Child;
+      let cmd: Command;
       if (
         config.audioSource === "mikrofon" ||
         config.audioSource === "beides"
@@ -252,16 +303,26 @@ export function useRecorder() {
         warmupCtx.close();
 
         // rec vom Standard-Mikrofon
-        child = await brewSpawn("rec", ["-r", "48000", "-c", "1", filepath]);
+        cmd = brewCommand("rec", ["-r", "48000", "-c", "1", filepath]);
       } else {
         // sox von BlackHole
-        child = await brewSpawn("sox", [
-          "-t",
-          "coreaudio",
-          "BlackHole 2ch",
-          filepath,
-        ]);
+        cmd = brewCommand("sox", ["-t", "coreaudio", "BlackHole 2ch", filepath]);
       }
+
+      // Capture stderr and watch for unexpected process exit.
+      // The close handler only fires handleRecordingError if currentConfig is
+      // still set (i.e. we haven't already started an intentional stop).
+      let stderrBuf = "";
+      cmd.stderr.on("data", (line: string) => { stderrBuf += line + "\n"; });
+      cmd.on("close", ({ code }: { code: number | null }) => {
+        if (code !== null && code !== 0 && currentConfig.current !== null) {
+          void handleRecordingError(
+            stderrBuf.trim() || `Aufnahme unerwartet beendet (Code ${code})`,
+          );
+        }
+      });
+
+      const child = await cmd.spawn();
       recProcess.current = child;
       currentConfig.current = config;
       currentFilePath.current = filepath;
@@ -274,18 +335,27 @@ export function useRecorder() {
         filePath: filepath,
         config,
         uploadMessage: "",
+        error: null,
       });
     } catch (err) {
       console.error("rec start error:", err);
-      alert(`Fehler beim Starten der Aufnahme: ${err}`);
+      setState((prev) => ({
+        ...prev,
+        error: `Aufnahme konnte nicht gestartet werden: ${err}`,
+      }));
     }
-  }, []);
+  }, [handleRecordingError]);
 
   const stopRecording = useCallback(async () => {
     setState((prev) => ({ ...prev, status: "stopping" }));
 
     const cfg = currentConfig.current;
     const filePath = currentFilePath.current;
+
+    // Clear refs BEFORE sending pkill so the recording-process close event
+    // doesn't treat the intentional SIGINT as an unexpected failure.
+    currentConfig.current = null;
+    currentFilePath.current = null;
 
     // Nur zurückschalten wenn System Audio verwendet wurde
     if (cfg?.audioSource === "system" || cfg?.audioSource === "beides") {
@@ -305,9 +375,6 @@ export function useRecorder() {
     } catch (_) {}
 
     await new Promise((r) => setTimeout(r, 1500));
-
-    currentConfig.current = null;
-    currentFilePath.current = null;
 
     if (
       cfg?.uploadMode === "cloud" &&
@@ -383,5 +450,6 @@ export function useRecorder() {
     chooseSaveFolder,
     formatDuration,
     formatFileSize,
+    clearError,
   };
 }
